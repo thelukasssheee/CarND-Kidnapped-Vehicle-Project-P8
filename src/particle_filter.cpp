@@ -40,7 +40,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 		particles[j].id = j;
 		particles[j].x = x + std_x(rnd_gen);
 		particles[j].y = y + std_y(rnd_gen);
-		particles[j].theta = theta + std_theta(random_num_gen);
+		particles[j].theta = theta + std_theta(rnd_gen);
 		// std::cout << "x: " << particles[j].x << ", y: " << particles[j].y << std::endl;
 	}
 }
@@ -53,9 +53,9 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 
 	// Invoke random number generator and normal distribution
 	std::default_random_engine rnd_gen;
-	std::normal_distribution<double> std_x(0.0,std[0]);
-	std::normal_distribution<double> std_y(0.0,std[1]);
-	std::normal_distribution<double> std_theta(0.0,std[2]);
+	std::normal_distribution<double> std_x(0.0,std_pos[0]);
+	std::normal_distribution<double> std_y(0.0,std_pos[1]);
+	std::normal_distribution<double> std_theta(0.0,std_pos[2]);
 
 	// Predict particle position, but initialize some variables first (speed gain...)
 	double yawd_dt = yaw_rate * delta_t;
