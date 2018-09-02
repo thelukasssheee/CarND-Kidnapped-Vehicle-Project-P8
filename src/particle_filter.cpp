@@ -29,7 +29,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	std::cout << "Number of particles: " << num_particles << std::endl;
 
 	// Invoke random number generator and normal distribution
-	std::default_random_engine random_num_gen;
+	std::default_random_engine rnd_gen;
 	std::normal_distribution<double> std_x(0.0,std[0]);
 	std::normal_distribution<double> std_y(0.0,std[1]);
 	std::normal_distribution<double> std_theta(0.0,std[2]);
@@ -38,10 +38,10 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	particles.resize(num_particles);
 	for (unsigned int j = 0; j < num_particles; j++) {
 		particles[j].id = j;
-		particles[j].x = x + std_x(random_num_gen);
-		particles[j].y = y + std_y(random_num_gen);
+		particles[j].x = x + std_x(rnd_gen);
+		particles[j].y = y + std_y(rnd_gen);
 		particles[j].theta = theta + std_theta(random_num_gen);
-		std::cout << "x: " << particles[j].x << ", y: " << particles[j].y << std::endl;
+		// std::cout << "x: " << particles[j].x << ", y: " << particles[j].y << std::endl;
 	}
 }
 
@@ -50,6 +50,23 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 	// NOTE: When adding noise you may find std::normal_distribution and std::default_random_engine useful.
 	//  http://en.cppreference.com/w/cpp/numeric/random/normal_distribution
 	//  http://www.cplusplus.com/reference/random/default_random_engine/
+
+	// Invoke random number generator and normal distribution
+	std::default_random_engine rnd_gen;
+	std::normal_distribution<double> std_x(0.0,std[0]);
+	std::normal_distribution<double> std_y(0.0,std[1]);
+	std::normal_distribution<double> std_theta(0.0,std[2]);
+
+	// Predict particle position, but initialize some variables first (speed gain...)
+	double yawd_dt = yaw_rate * delta_t;
+	double v_yawd = velocity / yaw_rate;
+	double theta = 0.;
+	for (unsigned int j = 0; j < num_particles; j++) {
+		theta = particles[j].theta;
+		particles[j].x += v_yawd * ( sin(theta + yawd_dt) - sin(theta)) + std_x(rnd_gen);
+		particles[j].y += v_yawd * (-cos(theta + yawd_dt) + cos(theta)) + std_y(rnd_gen);
+		particles[j].theta += yawd_dt + std_theta(rnd_gen);
+	}
 
 }
 
