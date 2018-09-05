@@ -28,7 +28,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	// 			 (and others in this file).
 
 	// Set number of particles
-	num_particles = 5;
+	num_particles = 100;
 	std::cout << "Number of particles: " << num_particles << std::endl;
 
 	// Invoke random number generator and normal distribution
@@ -37,6 +37,9 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	std::normal_distribution<double> std_y(0.0,std[1]);
 	std::normal_distribution<double> std_theta(0.0,std[2]);
 
+	// Initialize weights array
+	weights.resize(num_particles);
+
 	// Create vector with particles and random uncertainty based on provided sigmas
 	particles.resize(num_particles);
 	for (unsigned int j = 0; j < num_particles; j++) {
@@ -44,9 +47,10 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 		particles[j].x = x + std_x(rnd_gen);
 		particles[j].y = y + std_y(rnd_gen);
 		particles[j].theta = theta + std_theta(rnd_gen);
-		// std::cout << "x: " << particles[j].x << ", y: " << particles[j].y << std::endl;
+		particles[j].weight = 1.0;
 	}
 
+	// Set initialization flag to true
 	is_initialized = true;
 }
 
@@ -60,32 +64,31 @@ void ParticleFilter::prediction(double delta_t, double std_pos[],
 
 	// Invoke random number generator and normal distribution
 	std::default_random_engine rnd_gen;
+
+	// Create distributions for adding noise
 	std::normal_distribution<double> std_x(0.0,std_pos[0]);
 	std::normal_distribution<double> std_y(0.0,std_pos[1]);
 	std::normal_distribution<double> std_theta(0.0,std_pos[2]);
 
-	// Predict particle position, but initialize some variables first (faster!)
+	// To avoid division by zero, include two sets of equations
+	// Predict particle position, but precalculate some variables first (faster!)
 	double yawd_dt = yaw_rate * delta_t;
 	double v_yawd = velocity / yaw_rate;
 	double theta = 0.;
+	double v_t = velocity * delta_t;
 	for (unsigned int j = 0; j < num_particles; j++) {
-		theta = particles[j].theta;
-		particles[j].x += v_yawd * ( sin(theta + yawd_dt) - sin(theta)) + std_x(rnd_gen);
-		particles[j].y += v_yawd * (-cos(theta + yawd_dt) + cos(theta)) + std_y(rnd_gen);
-		particles[j].theta += yawd_dt + std_theta(rnd_gen);
+		theta = particles[j].theta; 		// Read theta from particle
+		if (abs(yaw_rate) < 0.00001) {
+			particles[j].x += v_t * cos(theta);
+			particles[j].y += v_t * sin(theta);
+			// Theta stays the same, since yaw rate is nearly zero
+		}
+		else {
+			particles[j].x += v_yawd * ( sin(theta + yawd_dt) - sin(theta)) + std_x(rnd_gen);
+			particles[j].y += v_yawd * (-cos(theta + yawd_dt) + cos(theta)) + std_y(rnd_gen);
+			particles[j].theta += yawd_dt + std_theta(rnd_gen);
+		}
 	}
-}
-
-void ParticleFilter::dataAssociation(std::vector<LandmarkObs> pot_landmarks,
-																		 std::vector<LandmarkObs> observ_global) {
-	// TODO: Find the predicted measurement that is closest to each observed
-	//   measurement and assign the observed measurement to this particular landmark.
-	// NOTE: this method will NOT be called by the grading code. But you will
-	//   probably find it useful to implement this method and use it as a helper
-	//	 during the updateWeights phase.
-	//   POT_LANDMARKS: all landmarks within sensor range for one specific particle
-	//   OBSERV_GLOBAL: actual landmark measurements from lidar within sensor range
-
 }
 
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
@@ -103,104 +106,75 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 	//   implement (look at equation 3.33)
 	//   http://planning.cs.uiuc.edu/node99.html
 
-	double x = 0.;			// Current particle position x
-	double y = 0.;			// Current particle position y
-	double theta = 0.;	// Current particle yaw angle theta
+	// Precalculate some terms of the multi-variate Gaussian distribution first
+	// to save calculation time. They stay constant throughout execution.
+  const double GD_a = 0.5 / ( M_PI * std_landmark[0] * std_landmark[1] );
+  // The variance of the multi variate gaussian distribution stays constant
+	const double var_x_2 = 2 * std_landmark[0] * std_landmark[0]; // 2x Variance in x dir
+	const double var_y_2 = 2 * std_landmark[1] * std_landmark[1]; // 2x Variance in y dir
 
-	double x_f = 0.;	  // Current landmark position x
-	double y_f = 0.;	  // Current landmark position y
+	// Read in landmarks
+	vector<Map::single_landmark_s> landmarks = map_landmarks.landmark_list;
 
-	double x_loc = 0.;	// Current observation in local coordinates
-	double y_loc = 0.;	// Current observation in local coordinates
+  // Iterate through each particle
+  for (unsigned int i = 0; i < num_particles; ++i) {
 
-	double w_fac = 1/(2*M_PI*std_landmark[0]*std_landmark[1]);
-	std::cout << "w_fac = " << w_fac << std::endl;
+    // Create variable to calculate cumulative product of weight
+    double GD_temp = 1.0;
 
-	double var_x = std_landmark[0] * std_landmark[0];
-	double var_y = std_landmark[1] * std_landmark[1];
-
-
-
-	// Walk through all particles
-	std::vector<LandmarkObs> pot_landmarks;
-	std::vector<LandmarkObs> observ_global;
-	for (unsigned int j = 0; j < num_particles; ++j) {
-		x = particles[j].x;
-		y = particles[j].y;
-		theta = particles[j].theta;
-
-		// Find landmarks in map, which are within sensor Range for current particle
-		// Identified landmarks will be stored as potential landmarks
-		// Walk through all map landmarks
-		vector<Map::single_landmark_s> landmarks = map_landmarks.landmark_list;
-		std::cout << "Landmarks: " << landmarks.size() << ", ";
-		std::cout << "Observations: " << observations.size() << std::endl;
-		// Reset variables for this particle before walking through landmarks
-		pot_landmarks.clear();
-		LandmarkObs curr_landmark;
+		// Calculate distance between particle and all Landmark
+		vector<double> LM_p_dist (landmarks.size());
 		for (unsigned int k = 0; k < landmarks.size(); ++k) {
-		// for (auto& k : map_landmarks) {
-			x_f = map_landmarks.landmark_list[k].x_f;
-			y_f = map_landmarks.landmark_list[k].y_f;
-			// Check if current landmark is within sensor range of current particle
-			if (dist(x, y, x_f, y_f) < sensor_range) {
-				// Add current landmark to list of potential landmark candidates
-				curr_landmark.id = map_landmarks.landmark_list[k].id_i;
-				curr_landmark.x = x_f;
-				curr_landmark.y = y_f;
-				pot_landmarks.push_back(curr_landmark);
-				// std::cout << "LM " << k << ": " << map_landmarks.landmark_list[k].x_f
-				// << "," << map_landmarks.landmark_list[k].y_f << std::endl;
-			}
+			LM_p_dist[k]	= dist(	particles[i].x, 	particles[i].y,
+														landmarks[k].x_f, landmarks[k].y_f);
 		}
 
-		// Convert lidar measurements of current predicted particle to
-		// global coordinate system
-		LandmarkObs meas;
-		observ_global.clear();
-		for (unsigned int k = 0; k < observations.size(); ++k) {
-			x_loc = observations[k].x;
-			y_loc = observations[k].y;
-			meas.id = observations[k].id;
-			meas.x = x_loc * cos(theta) - y_loc * sin(theta) + x;
-			meas.y = y_loc * sin(theta) + y_loc * cos(theta) + y;
-			observ_global.push_back(meas);
-		}
+    // For each observation
+    for (unsigned int j = 0; j < observations.size(); ++j) {
 
-		// Correlate/associate potential map landmarks and lidar observations
-		// dataAssociation(pot_landmarks, observ_global);
-		std::vector<double> dists_x;
-		std::vector<double> dists_y;
-		dists_x.resize(observ_global.size());
-		dists_y.resize(observ_global.size());
-		for (unsigned int k = 0; k < observ_global.size(); ++k) {
-			double min_dist = dist(	observ_global[k].x, observ_global[k].y,
-															pot_landmarks[0].x, pot_landmarks[0].y);
-			unsigned int min_loc = 0;
-			double curr_dist;
-			for (unsigned int m = 1; m < pot_landmarks.size(); ++m) {
-				curr_dist = dist(	observ_global[k].x, observ_global[k].y,
-													pot_landmarks[m].x, pot_landmarks[m].y);
-				if (curr_dist < min_dist) {
-					min_dist = curr_dist;
-					min_loc = m;
-				}
-			}
-			// Save landmark ID back to observation
-			observ_global[k].id = pot_landmarks[min_loc].id;
-			dists_x[k] = observ_global[k].x - pot_landmarks[min_loc].x;
-			dists_y[k] = observ_global[k].y - pot_landmarks[min_loc].y;
-		}
+      // Transform observation from vehicle coodinate system to map coordinates)
+      double x_obs_glob, y_obs_glob;
+      x_obs_glob = 	particles[i].x +
+										observations[j].x * cos(particles[i].theta) -
+										observations[j].y * sin(particles[i].theta);
+      y_obs_glob = 	particles[i].y +
+										observations[j].x * sin(particles[i].theta) +
+										observations[j].y * cos(particles[i].theta);
 
-		// Update weight of particle based on quality of sensor measurements
-		double weights_cum = 1.;
-		for (unsigned int k = 0; k < observ_global.size(); ++k) {
-			weights_cum *= w_fac / exp( 0.5 *
-				dists_x[k]*dists_x[k] / var_x + dists_y[k]*dists_y[k] / var_y);
-		}
-		weights[j] = weights_cum;
-		particles[j].weight = weights_cum;
-	}
+			// Walk through all landmarks
+      vector<double> LM_obs_dist (landmarks.size());
+      for (unsigned int k = 0; k < landmarks.size(); ++k) {
+
+        // Only check landmarks which are in sensor range.
+        // Use nearest neighbour approach. If in range, calculate distance
+				// between measurement and nearest neighbour landmark object.
+        if (LM_p_dist[k] <= sensor_range) {
+          LM_obs_dist[k] = dist(	x_obs_glob, 			y_obs_glob,
+																	landmarks[k].x_f, landmarks[k].y_f);
+        }
+				else {
+          // Set landmarks outside sensor range to high distance value.
+          LM_obs_dist[k] = 88888.;
+        }
+      }
+
+      // Associate observation point with its nearest neighbor landmark
+      int min_pos = distance(LM_obs_dist.begin(),
+								 min_element(LM_obs_dist.begin(),LM_obs_dist.end()));
+
+      // Calculate weight based on multi-variate Gaussian distribution
+      double x_diff = x_obs_glob - landmarks[min_pos].x_f;
+      double y_diff = y_obs_glob - landmarks[min_pos].y_f;
+      double GD_b = (x_diff * x_diff / var_x_2) +
+										(y_diff * y_diff / var_y_2);
+      GD_temp *= GD_a * exp(-1 * GD_b);
+
+    }
+
+    // Update particle weights with combined multi-variate Gaussian distribution
+    particles[i].weight = GD_temp;
+    weights[i] = GD_temp;
+  }
 }
 
 void ParticleFilter::resample() {
@@ -209,6 +183,25 @@ void ParticleFilter::resample() {
 	// NOTE: You may find std::discrete_distribution helpful here.
 	//   http://en.cppreference.com/w/cpp/numeric/random/discrete_distribution
 
+	// Invoke discrete distribution generator:
+	// Generates integer values dependent on provided weight vector. This allows
+	// to resample particles based on their weight (higher weight leads to
+	// higher proability and higher count of this particle)
+	std::discrete_distribution<unsigned int> discrete_distr (weights.begin(),weights.end());
+	// Generate random number generator
+	std::default_random_engine generator;
+
+
+	// Prepare a vector to hold the new particles
+	std::vector<Particle> particles_resampled (num_particles);
+
+	// Use discrete distribution to return particles by weight
+	for (unsigned int j = 0; j < particles.size(); ++j) {
+		particles_resampled[j] = particles[discrete_distr(generator)];
+	}
+
+	// Replace particles vector with resampled one
+	particles = particles_resampled;
 }
 
 Particle ParticleFilter::SetAssociations(Particle& particle,
@@ -223,7 +216,7 @@ Particle ParticleFilter::SetAssociations(Particle& particle,
     particle.associations= associations;
     particle.sense_x = sense_x;
     particle.sense_y = sense_y;
-		return particle; // TODO: is that correct???
+		return particle;
 }
 
 string ParticleFilter::getAssociations(Particle best)
