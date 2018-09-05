@@ -83,15 +83,8 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> pot_landmarks,
 	// NOTE: this method will NOT be called by the grading code. But you will
 	//   probably find it useful to implement this method and use it as a helper
 	//	 during the updateWeights phase.
-	//   PREDICTED: all landmarks within sensor range for one specific particle
-	//   OBSERVATIONS: actual landmark measurements from lidar
-
-	// for (unsigned int j = 0; j < sizeof(predicted); j++) {
-	// 	std::cout << "Pred " <<j<< ": " << predicted[j].x << "," << predicted[j].y << std::endl;
-	// }
-	// for (unsigned int j = 0; j < sizeof(predicted); j++) {
-	// 	std::cout << "Obs. " <<j<< ": " << observations[j].x << "," << observations[j].y << std::endl;
-	// }
+	//   POT_LANDMARKS: all landmarks within sensor range for one specific particle
+	//   OBSERV_GLOBAL: actual landmark measurements from lidar within sensor range
 
 }
 
@@ -119,6 +112,13 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 
 	double x_loc = 0.;	// Current observation in local coordinates
 	double y_loc = 0.;	// Current observation in local coordinates
+
+	double w_fac = 1/(2*M_PI*std_landmark[0]*std_landmark[1]);
+	std::cout << "w_fac = " << w_fac << std::endl;
+
+	double var_x = std_landmark[0] * std_landmark[0];
+	double var_y = std_landmark[1] * std_landmark[1];
+
 
 
 	// Walk through all particles
@@ -168,12 +168,38 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 		}
 
 		// Correlate/associate potential map landmarks and lidar observations
-		dataAssociation(pot_landmarks, observ_global);
+		// dataAssociation(pot_landmarks, observ_global);
+		std::vector<double> dists_x;
+		std::vector<double> dists_y;
+		dists_x.resize(observ_global.size());
+		dists_y.resize(observ_global.size());
+		for (unsigned int k = 0; k < observ_global.size(); ++k) {
+			double min_dist = dist(	observ_global[k].x, observ_global[k].y,
+															pot_landmarks[0].x, pot_landmarks[0].y);
+			unsigned int min_loc = 0;
+			double curr_dist;
+			for (unsigned int m = 1; m < pot_landmarks.size(); ++m) {
+				curr_dist = dist(	observ_global[k].x, observ_global[k].y,
+													pot_landmarks[m].x, pot_landmarks[m].y);
+				if (curr_dist < min_dist) {
+					min_dist = curr_dist;
+					min_loc = m;
+				}
+			}
+			// Save landmark ID back to observation
+			observ_global[k].id = pot_landmarks[min_loc].id;
+			dists_x[k] = observ_global[k].x - pot_landmarks[min_loc].x;
+			dists_y[k] = observ_global[k].y - pot_landmarks[min_loc].y;
+		}
 
-
-		// Update weight of particle
-
-
+		// Update weight of particle based on quality of sensor measurements
+		double weights_cum = 1.;
+		for (unsigned int k = 0; k < observ_global.size(); ++k) {
+			weights_cum *= w_fac / exp( 0.5 *
+				dists_x[k]*dists_x[k] / var_x + dists_y[k]*dists_y[k] / var_y);
+		}
+		weights[j] = weights_cum;
+		particles[j].weight = weights_cum;
 	}
 }
 
