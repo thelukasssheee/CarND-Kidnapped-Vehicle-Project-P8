@@ -32,7 +32,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	std::cout << "Number of particles: " << num_particles << std::endl;
 
 	// Invoke random number generator and normal distribution
-	std::default_random_engine rnd_gen;
+	// Create a random number generator
 	std::normal_distribution<double> std_x(0.0,std[0]);
 	std::normal_distribution<double> std_y(0.0,std[1]);
 	std::normal_distribution<double> std_theta(0.0,std[2]);
@@ -44,9 +44,9 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	particles.resize(num_particles);
 	for (unsigned int j = 0; j < num_particles; j++) {
 		particles[j].id = j;
-		particles[j].x = x + std_x(rnd_gen);
-		particles[j].y = y + std_y(rnd_gen);
-		particles[j].theta = theta + std_theta(rnd_gen);
+		particles[j].x = x + std_x(random_gen);
+		particles[j].y = y + std_y(random_gen);
+		particles[j].theta = theta + std_theta(random_gen);
 		particles[j].weight = 1.0;
 	}
 
@@ -63,7 +63,7 @@ void ParticleFilter::prediction(double delta_t, double std_pos[],
 	//  http://www.cplusplus.com/reference/random/default_random_engine/
 
 	// Invoke random number generator and normal distribution
-	std::default_random_engine rnd_gen;
+	// std::default_random_engine random_gen;
 
 	// Create distributions for adding noise
 	std::normal_distribution<double> std_x(0.0,std_pos[0]);
@@ -84,9 +84,9 @@ void ParticleFilter::prediction(double delta_t, double std_pos[],
 			// Theta stays the same, since yaw rate is nearly zero
 		}
 		else {
-			particles[j].x += v_yawd * ( sin(theta + yawd_dt) - sin(theta)) + std_x(rnd_gen);
-			particles[j].y += v_yawd * (-cos(theta + yawd_dt) + cos(theta)) + std_y(rnd_gen);
-			particles[j].theta += yawd_dt + std_theta(rnd_gen);
+			particles[j].x += v_yawd * ( sin(theta + yawd_dt) - sin(theta)) + std_x(random_gen);
+			particles[j].y += v_yawd * (-cos(theta + yawd_dt) + cos(theta)) + std_y(random_gen);
+			particles[j].theta += yawd_dt + std_theta(random_gen);
 		}
 	}
 }
@@ -189,7 +189,7 @@ void ParticleFilter::resample() {
 	// higher proability and higher count of this particle)
 	std::discrete_distribution<unsigned int> discrete_distr (weights.begin(),weights.end());
 	// Generate random number generator
-	std::default_random_engine generator;
+	//std::default_random_engine generator;
 
 
 	// Prepare a vector to hold the new particles
@@ -197,7 +197,7 @@ void ParticleFilter::resample() {
 
 	// Use discrete distribution to return particles by weight
 	for (unsigned int j = 0; j < particles.size(); ++j) {
-		particles_resampled[j] = particles[discrete_distr(generator)];
+		particles_resampled[j] = particles[discrete_distr(random_gen)];
 	}
 
 	// Replace particles vector with resampled one
